@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Community Gathering Sign-Up</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app;
+        let db;
+        let auth;
+        let userId;
+
+        const nameInput = document.getElementById('nameInput');
+        const snackInput = document.getElementById('snackInput');
+        const addSnackButton = document.getElementById('addSnackButton');
+        const snackTableBody = document.getElementById('snackTableBody');
+        const emptyStateMessage = document.getElementById('emptyStateMessage');
+        const currentUserIdDisplay = document.getElementById('currentUserId');
+        const messageBox = document.getElementById('messageBox');
+
+        function showMessage(message, type = 'error') {
+            messageBox.textContent = message;
+            messageBox.className = `fixed top-4 right-4 p-3 rounded-md shadow-lg ${type === 'error' ? 'bg-red-500' : 'bg-green-500'} text-white`;
+            messageBox.classList.remove('hidden');
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 3000);
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        currentUserIdDisplay.textContent = userId;
+                        setupFirestoreListener();
+                    } else {
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            showMessage(`Authentication failed: ${error.message}`, 'error');
+                            console.error("Authentication error:", error);
+                        }
+                    }
+                });
+            } catch (error) {
+                showMessage(`Firebase initialization failed: ${error.message}`, 'error');
+                console.error("Firebase initialization error:", error);
+            }
+        });
+
+        function setupFirestoreListener() {
+            if (!db || !userId) {
+                console.error("Firestore or User ID not initialized.");
+                return;
+            }
+
+            const snacksCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/snacks`);
+            const q = query(snacksCollectionRef);
+
+            onSnapshot(q, (snapshot) => {
+                snackTableBody.innerHTML = '';
+                if (snapshot.empty) {
+                    emptyStateMessage.classList.remove('hidden');
+                } else {
+                    emptyStateMessage.classList.add('hidden');
+                    const snacks = [];
+                    snapshot.forEach(doc => {
+                        snacks.push({ id: doc.id, ...doc.data() });
+                    });
+
+                    // Sort snacks by timestamp if available, otherwise by name
+                    snacks.sort((a, b) => {
+                        if (a.timestamp && b.timestamp) {
+                            return a.timestamp - b.timestamp;
+                        }
+                        return a.name.localeCompare(b.name);
+                    });
+
+                    snacks.forEach(snackData => {
+                        const newRow = snackTableBody.insertRow();
+                        newRow.classList.add('hover:bg-amber-50', 'transition-colors', 'duration-150');
+
+                        const nameCell = newRow.insertCell();
+                        nameCell.textContent = snackData.name;
+                        nameCell.classList.add('px-6', 'py-4', 'whitespace-nowrap', 'text-sm', 'text-stone-600', 'table-cell-truncate');
+
+                        const snackCell = newRow.insertCell();
+                        snackCell.textContent = snackData.snack;
+                        snackCell.classList.add('px-6', 'py-4', 'whitespace-nowrap', 'text-sm', 'text-stone-600', 'table-cell-truncate');
+                    });
+                }
+            }, (error) => {
+                showMessage(`Error fetching snacks: ${error.message}`, 'error');
+                console.error("Error fetching snacks:", error);
+            });
+        }
+
+        async function addSnackToTable() {
+            const name = nameInput.value.trim();
+            const snack = snackInput.value.trim();
+
+            if (name === "" || snack === "") {
+                showMessage("Please enter both your name and the snack you're bringing.", 'error');
+                return;
+            }
+
+            if (!db || !userId) {
+                showMessage("Application not ready. Please wait for authentication.", 'error');
+                return;
+            }
+
+            try {
+                const snacksCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/snacks`);
+                await addDoc(snacksCollectionRef, {
+                    name: name,
+                    snack: snack,
+                    timestamp: Date.now()
+                });
+                showMessage("Snack added successfully!", 'success');
+                nameInput.value = "";
+                snackInput.value = "";
+                nameInput.focus();
+            } catch (e) {
+                showMessage(`Error adding snack: ${e.message}`, 'error');
+                console.error("Error adding document: ", e);
+            }
+        }
+
+        addSnackButton.addEventListener('click', addSnackToTable);
+        
+        snackInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                addSnackToTable();
+            }
+        });
+        nameInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                 snackInput.focus();
+            }
+        });
+    </script>
+    <!-- Application Structure Plan: 
+        1. Hero Section: Main invitation title and brief welcome. (Why: Grab attention, set the tone)
+        2. Event Details Section: "When", "Where", "Food Details", "What to Bring (Swimsuit)". (Why: Clear, scannable logistical information)
+        3. Interactive Snack Sign-Up Section: Input fields for Name and Snack, "Add Snack" button, and a dynamically populated table showing sign-ups. (Why: Core interactive element for user engagement and information collection, now with persistence)
+        User Flow: Read invitation -> Understand details -> Interactively sign up for a snack, with entries saved and displayed in real-time. This is a linear and intuitive flow for a simple event.
+    -->
+    <!-- Visualization & Content Choices:
+        - Report Info: Event Title & Welcome -> Goal: Inform, Excite -> Viz/Presentation: Large HTML headings (h1, h2) with emoji, Tailwind styled. -> Interaction: None. -> Justification: Prominent display. -> Library/Method: HTML, Tailwind.
+        - Report Info: When, Where, Food, Swimsuit -> Goal: Inform -> Viz/Presentation: Structured HTML paragraphs with bolded labels, Tailwind styled. -> Interaction: None. -> Justification: Easy-to-read logistics. -> Library/Method: HTML, Tailwind.
+        - Report Info: Snack Sign-Up Sheet (Name, Optional Snack) -> Goal: Organize, Interact, Collect Info -> Viz/Presentation: HTML form (inputs for Name, Snack), HTML button, dynamically updated HTML table. Data fetched from and stored in Firestore. -> Interaction: User types name/snack, clicks button; JS adds new document to Firestore; onSnapshot updates table in real-time. -> Justification: Interactive sign-up with data persistence. -> Library/Method: HTML, Tailwind, Vanilla JS, Firebase Firestore.
+        - Report Info: "smartchips" for snacks (interpreted as guidance) -> Goal: Guide input -> Viz/Presentation: Placeholder text in snack input field (e.g., "Chips, Drinks, Fruit"). -> Interaction: User types freely. -> Justification: Simple guidance without overcomplicating for a basic SPA. -> Library/Method: HTML attribute.
+        - Report Info: User ID Display -> Goal: Inform, Identify -> Viz/Presentation: Text element displaying the authenticated user's ID. -> Interaction: None. -> Justification: Required for multi-user context and debugging. -> Library/Method: HTML, Vanilla JS.
+    -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .table-cell-truncate {
+            max-width: 150px; 
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        @media (min-width: 640px) {
+            .table-cell-truncate {
+                max-width: none;
+            }
+        }
+    </style>
+</head>
+<body class="bg-amber-50 text-stone-800 min-h-screen flex flex-col items-center py-8 px-4 selection:bg-emerald-200 selection:text-emerald-800">
+
+    <div class="w-full max-w-3xl bg-white shadow-xl rounded-lg p-6 md:p-10">
+
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-emerald-700 mb-3">🎉 You're Invited! 🎉</h1>
+            <p class="text-xl text-stone-700">Join us for a Stanford YSA Ward Activity!</p>
+        </header>
+
+        <section id="event-details" class="mb-10 space-y-6">
+            <h2 class="text-2xl font-semibold text-emerald-600 border-b-2 border-emerald-200 pb-2 mb-4">Event Details</h2>
+            <p class="text-lg leading-relaxed">We're incredibly fired up to have everyone join us for a fantastic evening!</p>
+            <div>
+                <p class="text-lg"><strong class="font-semibold text-stone-700">When:</strong> Thursday, May 29th at 6:30 PM</p>
+                <p class="text-lg"><strong class="font-semibold text-stone-700">Where:</strong> 26644 Purissima Road 
+Los Altos Hills CA (Lauren Wheatley's House)</p>
+            </div>
+            <div>
+                <p class="text-lg"><strong class="font-semibold text-stone-700">Food & Fun:</strong> We'll be providing a delicious spread of food - BBQ. Come help us kick off the summer. 
+                We'd also love it if you could contribute by bringing some snacks! Think chips, beverages, fruit, or treats!</p>
+                <p class="text-lg mt-2"><strong class="font-semibold text-stone-700">Don't Forget:</strong> Bring your swimsuit and towel - Pool + Hot Tub! 🏊‍♀️</p>
+            </div>
+        </section>
+
+        <section id="snack-signup" class="mb-6">
+            <h2 class="text-2xl font-semibold text-emerald-600 border-b-2 border-emerald-200 pb-2 mb-6">🥨 Snack Sign-Up 🍉</h2>
+            <p class="text-lg mb-6 leading-relaxed">Help us make the evening even tastier! If you're able to bring a snack, please add your name and what you'll bring below. This helps us get a variety and avoid too many duplicates!</p>
+            
+            <div class="bg-amber-100 p-6 rounded-lg shadow-md mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label for="nameInput" class="block text-sm font-medium text-stone-700 mb-1">Your Name:</label>
+                        <input type="text" id="nameInput" class="w-full p-3 border border-amber-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 placeholder-stone-400" placeholder="e.g., Alex Smith">
+                    </div>
+                    <div>
+                        <label for="snackInput" class="block text-sm font-medium text-stone-700 mb-1">Optional Snack:</label>
+                        <input type="text" id="snackInput" class="w-full p-3 border border-amber-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 placeholder-stone-400" placeholder="e.g., Chips, Drinks, Fruit Salad">
+                    </div>
+                </div>
+                <button id="addSnackButton" class="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-6 rounded-md shadow-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50">
+                    Add My Snack to the List
+                </button>
+            </div>
+
+            <h3 class="text-xl font-semibold text-stone-700 mb-4">Who's Bringing What:</h3>
+            <div class="overflow-x-auto bg-white rounded-lg shadow">
+                <table id="snackTable" class="min-w-full divide-y divide-amber-200">
+                    <thead class="bg-amber-100">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-emerald-700 uppercase tracking-wider">Name</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-emerald-700 uppercase tracking-wider">Snack</th>
+                        </tr>
+                    </thead>
+                    <tbody id="snackTableBody" class="bg-white divide-y divide-amber-100">
+                        </tbody>
+                </table>
+            </div>
+             <p id="emptyStateMessage" class="text-center text-stone-500 py-6 hidden">No snacks signed up yet. Be the first!</p>
+        </section>
+
+        <footer class="text-center mt-12 pt-6 border-t border-amber-200">
+            <p class="text-stone-600">Can't wait to see you there!</p>
+        </footer>
+
+        <div id="messageBox" class="fixed top-4 right-4 p-3 rounded-md shadow-lg hidden"></div>
+        <div class="text-xs text-stone-400 text-center mt-4">
+            Your User ID: <span id="currentUserId" class="font-mono text-stone-500">Loading...</span>
+        </div>
+
+    </div>
+
+</body>
+</html>
